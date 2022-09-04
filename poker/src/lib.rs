@@ -1,5 +1,6 @@
 use int_enum::IntEnum;
 use std::cmp;
+use std::cmp::Ordering;
 use std::collections;
 
 /// Given a list of poker hands, return a list of those hands which win.
@@ -19,44 +20,67 @@ pub fn winning_hands<'a>(hands: &[&'a str]) -> Vec<&'a str> {
         })
         .collect::<Vec<Hand<Category>>>();
 
-    parsed_hands.sort_by(|a, b| a.partial_cmp(b).unwrap_or(cmp::Ordering::Greater));
+    parsed_hands.sort_by(|a, b| b.partial_cmp(a).unwrap_or(cmp::Ordering::Equal));
 
-    parsed_hands
-        .into_iter()
+    let result = parsed_hands
+        .iter()
+        .take_while(|hand| hand.hand == parsed_hands[0].hand)
         .map(|hand| hand.reference)
-        .collect()
+        .collect();
+
+    result
 }
 
-#[derive(PartialEq, PartialOrd)]
+#[derive(Debug, PartialEq)]
 struct Hand<'a, T> {
     reference: &'a str,
     hand: T,
 }
 
-#[repr(u8)]
-#[derive(Debug, PartialEq, Eq, Copy, Clone, IntEnum)]
+impl<T: PartialOrd> cmp::PartialOrd for Hand<'_, T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.hand.partial_cmp(&other.hand)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
 enum Category {
-    FiveOfAKind = 9,
-    StraightFlush = 8,
-    FourOfAKind = 7,
-    FullHouse = 6,
-    Flush = 5,
-    Straight = 4,
-    ThreeOfAKind = 3,
-    TwoPair = 2,
-    OnePair = 1,
-    HighCard = 0,
+    FiveOfAKind,
+    StraightFlush,
+    FourOfAKind,
+    FullHouse,
+    Flush,
+    Straight,
+    ThreeOfAKind,
+    TwoPair,
+    OnePair,
+    HighCard(Card),
 }
 
 impl cmp::PartialOrd for Category {
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        self.int_value().partial_cmp(&other.int_value())
-    }
-}
-
-impl cmp::Ord for Category {
-    fn cmp(&self, other: &Self) -> cmp::Ordering {
-        self.int_value().cmp(&other.int_value())
+        Some(match (self, other) {
+            (Category::FiveOfAKind, Category::FiveOfAKind) => Ordering::Equal,
+            (Category::FiveOfAKind, _) => Ordering::Greater,
+            (Category::StraightFlush, Category::StraightFlush) => Ordering::Equal,
+            (Category::StraightFlush, _) => Ordering::Greater,
+            (Category::FourOfAKind, Category::FourOfAKind) => Ordering::Equal,
+            (Category::FourOfAKind, _) => Ordering::Greater,
+            (Category::FullHouse, Category::FullHouse) => Ordering::Equal,
+            (Category::FullHouse, _) => Ordering::Greater,
+            (Category::Flush, Category::Flush) => Ordering::Equal,
+            (Category::Flush, _) => Ordering::Greater,
+            (Category::Straight, Category::Straight) => Ordering::Equal,
+            (Category::Straight, _) => Ordering::Greater,
+            (Category::ThreeOfAKind, Category::ThreeOfAKind) => Ordering::Equal,
+            (Category::ThreeOfAKind, _) => Ordering::Greater,
+            (Category::TwoPair, Category::TwoPair) => Ordering::Equal,
+            (Category::TwoPair, _) => Ordering::Greater,
+            (Category::OnePair, Category::OnePair) => Ordering::Equal,
+            (Category::OnePair, _) => Ordering::Greater,
+            (Category::HighCard(lhs), Category::HighCard(rhs)) => lhs.cmp(rhs),
+            (Category::HighCard(_), _) => Ordering::Less,
+        })
     }
 }
 
@@ -147,13 +171,47 @@ impl Category {
             return Category::OnePair;
         }
 
-        Category::HighCard
+        Category::HighCard(hand[hand.len() - 1])
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn high_card_jack_greater_than_ten() {
+        let x = Category::HighCard(Card::Regular(RegularCard {
+            suit: Suit::Diamonds,
+            rank: Rank::Eight,
+        }));
+        let y = Category::HighCard(Card::Regular(RegularCard {
+            suit: Suit::Hearts,
+            rank: Rank::Ten,
+        }));
+        let z = Category::HighCard(Card::Regular(RegularCard {
+            suit: Suit::Hearts,
+            rank: Rank::Jack,
+        }));
+
+        assert!(x < y);
+        assert!(y < z);
+        assert!(x < z);
+    }
+
+    #[test]
+    fn highest_card() {
+        assert_eq!(
+            Category::new(vec![
+                Card::new(Rank::Three, Suit::Spades),
+                Card::new(Rank::Four, Suit::Spades),
+                Card::new(Rank::Five, Suit::Diamonds),
+                Card::new(Rank::Six, Suit::Hearts),
+                Card::new(Rank::Jack, Suit::Hearts),
+            ]),
+            Category::HighCard(Card::new(Rank::Jack, Suit::Hearts))
+        );
+    }
 
     #[test]
     fn identifies_one_pair() {
@@ -325,36 +383,44 @@ mod tests {
 
 impl Hand<'_, Vec<Card>> {
     fn parse_hand(input: &str) -> Hand<Vec<Card>> {
+        let char_to_suit = |char| match char {
+            'S' => Suit::Spades,
+            'H' => Suit::Hearts,
+            'D' => Suit::Diamonds,
+            'C' => Suit::Clubs,
+            _ => panic!("Invalid suit"),
+        };
+
         let mut cards = input
             .split_whitespace()
             .into_iter()
             .map(|card| {
-                let rank = match card.chars().nth(0).expect("Invalid rank") {
-                    '2' => Rank::Two,
-                    '3' => Rank::Three,
-                    '4' => Rank::Four,
-                    '5' => Rank::Five,
-                    '6' => Rank::Six,
-                    '7' => Rank::Seven,
-                    '8' => Rank::Eight,
-                    '9' => Rank::Nine,
-                    '1' => Rank::Ten,
-                    'J' => Rank::Jack,
-                    'Q' => Rank::Queen,
-                    'K' => Rank::King,
-                    'A' => Rank::Ace,
-                    _ => panic!("Invalid rank"),
-                };
+                if card.len() == 2 {
+                    let rank = match card.chars().nth(0).expect("Invalid rank") {
+                        '2' => Rank::Two,
+                        '3' => Rank::Three,
+                        '4' => Rank::Four,
+                        '5' => Rank::Five,
+                        '6' => Rank::Six,
+                        '7' => Rank::Seven,
+                        '8' => Rank::Eight,
+                        '9' => Rank::Nine,
+                        'J' => Rank::Jack,
+                        'Q' => Rank::Queen,
+                        'K' => Rank::King,
+                        'A' => Rank::Ace,
+                        _ => panic!("Invalid rank"),
+                    };
 
-                let suit = match card.chars().nth(1).expect("Invalid suit") {
-                    'S' => Suit::Spades,
-                    'H' => Suit::Hearts,
-                    'D' => Suit::Diamonds,
-                    'C' => Suit::Clubs,
-                    _ => panic!("Invalid sui"),
-                };
+                    let suit = char_to_suit(card.chars().nth(1).expect("Invalid suit"));
 
-                Card::Regular(RegularCard { rank, suit })
+                    Card::Regular(RegularCard { rank, suit })
+                } else {
+                    Card::Regular(RegularCard {
+                        rank: Rank::Ten,
+                        suit: char_to_suit(card.chars().nth(2).expect("Invalid card")),
+                    })
+                }
             })
             .collect::<Vec<Card>>();
 
