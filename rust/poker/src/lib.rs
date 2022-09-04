@@ -32,7 +32,7 @@ enum Category {
     FiveOfAKind,
     StraightFlush(Suit, Card /* lowest card */),
     FourOfAKind,
-    FullHouse(Rank, Rank),
+    FullHouse,
     Flush(Suit),
     Straight(Rank /* lowest rank  */),
     ThreeOfAKind(Rank),
@@ -65,6 +65,16 @@ impl Category {
 
         if n_of_a_kind + ranks.get(&None).unwrap_or(&0) == 4 {
             return Category::FourOfAKind;
+        }
+
+        let is_full_house_without_jokers =
+            n_of_a_kind == 3 && ranks.iter().any(|(_, &count)| count == 2);
+
+        let is_full_house_with_joker =
+            ranks.iter().filter(|count| *count.1 == 2).count() >= 2 && ranks[&None] >= 1;
+
+        if is_full_house_without_jokers || is_full_house_with_joker {
+            return Category::FullHouse;
         }
 
         let mut suit = None;
@@ -121,30 +131,19 @@ mod tests {
                 make_nine(Suit::Clubs),
                 make_nine(Suit::Hearts),
             ]),
-            Category::FourOfAKind
+            Category::FullHouse
         );
 
-        // assert_eq!(
-        //     Category::new(vec![
-        //         make_ten(Suit::Spades),
-        //         make_ten(Suit::Hearts),
-        //         make_ten(Suit::Clubs),
-        //         make_nine(Suit::Clubs),
-        //         Card::Joker,
-        //     ]),
-        //     Category::FourOfAKind
-        // );
-
-        // assert_eq!(
-        //     Category::new(vec![
-        //         make_ten(Suit::Spades),
-        //         make_ten(Suit::Hearts),
-        //         Card::Joker,
-        //         make_nine(Suit::Clubs),
-        //         make_nine(Suit::Hearts),
-        //     ]),
-        //     Category::FourOfAKind
-        // );
+        assert_eq!(
+            Category::new(vec![
+                make_ten(Suit::Spades),
+                make_ten(Suit::Hearts),
+                Card::Joker,
+                make_nine(Suit::Clubs),
+                make_nine(Suit::Hearts),
+            ]),
+            Category::FullHouse
+        );
     }
 
     #[test]
