@@ -70,8 +70,8 @@ impl Category {
         let is_full_house_without_jokers =
             n_of_a_kind == 3 && ranks.iter().any(|(_, &count)| count == 2);
 
-        let is_full_house_with_joker =
-            ranks.iter().filter(|count| *count.1 == 2).count() >= 2 && ranks[&None] >= 1;
+        let is_full_house_with_joker = ranks.iter().filter(|count| *count.1 == 2).count() >= 2
+            && ranks.get(&None).unwrap_or(&0) >= &1;
 
         if is_full_house_without_jokers || is_full_house_with_joker {
             return Category::FullHouse;
@@ -92,19 +92,19 @@ impl Category {
 
         hand.sort();
 
-        let is_straight_flush =
-            hand.iter()
-                .enumerate()
-                .filter(|(i, _)| *i != 0)
-                .all(|(i, card)| {
-                    Card::joker_map(true, *card, &|card: RegularCard| {
-                        Card::joker_map(true, hand[i - 1], &|prev_card: RegularCard| {
-                            Ok(card.rank) == Rank::from_int(prev_card.rank.int_value() + 1)
-                        })
+        let is_straight = hand
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != 0)
+            .all(|(i, card)| {
+                Card::joker_map(true, *card, &|card: RegularCard| {
+                    Card::joker_map(true, hand[i - 1], &|prev_card: RegularCard| {
+                        Ok(card.rank) == Rank::from_int(prev_card.rank.int_value() + 1)
                     })
-                });
+                })
+            });
 
-        if is_straight_flush {
+        if is_straight && is_flush {
             return Category::StraightFlush;
         }
 
@@ -112,13 +112,85 @@ impl Category {
             return Category::Flush;
         }
 
-        unimplemented!("Category::new")
+        if is_straight {
+            return Category::Straight;
+        }
+
+        if n_of_a_kind == 3 {
+            return Category::ThreeOfAKind;
+        }
+
+        if ranks.iter().filter(|count| *count.1 == 2).count() == 2 {
+            return Category::TwoPair;
+        }
+
+        if ranks.iter().filter(|count| *count.1 == 2).count() == 1 {
+            return Category::OnePair;
+        }
+
+        Category::HighCard
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn identifies_one_pair() {
+        assert_eq!(
+            Category::new(vec![
+                Card::new(Rank::Queen, Suit::Diamonds),
+                Card::new(Rank::Queen, Suit::Hearts),
+                Card::new(Rank::Seven, Suit::Spades),
+                Card::new(Rank::Nine, Suit::Diamonds),
+                Card::new(Rank::Six, Suit::Clubs),
+            ]),
+            Category::OnePair
+        );
+    }
+
+    #[test]
+    fn identifies_two_pairs() {
+        assert_eq!(
+            Category::new(vec![
+                Card::new(Rank::Queen, Suit::Diamonds),
+                Card::new(Rank::Queen, Suit::Hearts),
+                Card::new(Rank::Seven, Suit::Spades),
+                Card::new(Rank::Seven, Suit::Diamonds),
+                Card::new(Rank::Six, Suit::Clubs),
+            ]),
+            Category::TwoPair
+        );
+    }
+
+    #[test]
+    fn identifies_three_of_a_kind() {
+        assert_eq!(
+            Category::new(vec![
+                Card::new(Rank::Queen, Suit::Diamonds),
+                Card::new(Rank::Queen, Suit::Hearts),
+                Card::new(Rank::Queen, Suit::Spades),
+                Card::new(Rank::Seven, Suit::Diamonds),
+                Card::new(Rank::Six, Suit::Clubs),
+            ]),
+            Category::ThreeOfAKind
+        );
+    }
+
+    #[test]
+    fn identifies_straight() {
+        assert_eq!(
+            Category::new(vec![
+                Card::new(Rank::Ten, Suit::Diamonds),
+                Card::new(Rank::Eight, Suit::Hearts),
+                Card::new(Rank::Nine, Suit::Spades),
+                Card::new(Rank::Seven, Suit::Diamonds),
+                Card::new(Rank::Six, Suit::Clubs),
+            ]),
+            Category::Straight
+        );
+    }
 
     #[test]
     fn identifies_flush() {
