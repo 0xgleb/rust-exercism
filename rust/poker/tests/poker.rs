@@ -39,13 +39,11 @@ fn lower_ranks_are_higher() {
 }
 
 #[test]
-#[ignore]
 fn test_single_hand_always_wins() {
     test(&["4S 5S 7H 8D JC"], &["4S 5S 7H 8D JC"])
 }
 
 #[test]
-#[ignore]
 fn test_duplicate_hands_always_tie() {
     let input = &["3S 4S 5D 6H JH", "3S 4S 5D 6H JH", "3S 4S 5D 6H JH"];
     assert_eq!(&winning_hands(input), input)

@@ -6,39 +6,58 @@ use std::collections;
 ///
 /// Note the type signature: this function should return _the same_ reference to
 /// the winning hand(s) as were passed in, not reconstructed strings which happen to be equal.
-pub fn winning_hands<'a>(_hands: &[&'a str]) -> Vec<&'a str> {
-    unimplemented!("winning_hands")
-    // let mut parsed_hands = hands
-    //     .into_iter()
-    //     .map(|hand| Hand::parse_hand(hand).map(|cards| cards_to_category(cards)))
-    //     .collect::<Vec<Hand<Category>>>();
+pub fn winning_hands<'a>(hands: &[&'a str]) -> Vec<&'a str> {
+    let mut parsed_hands = hands
+        .into_iter()
+        .map(|hand| {
+            let card_hand = Hand::parse_hand(hand);
 
-    // parsed_hands.sort_by(|a, b| a.partial_cmp(b).unwrap_or(cmp::Ordering::Greater));
+            Hand {
+                reference: card_hand.reference,
+                hand: Category::new(card_hand.hand),
+            }
+        })
+        .collect::<Vec<Hand<Category>>>();
 
-    // parsed_hands
-    //     .into_iter()
-    //     .map(|hand| hand.reference)
-    //     .collect()
+    parsed_hands.sort_by(|a, b| a.partial_cmp(b).unwrap_or(cmp::Ordering::Greater));
+
+    parsed_hands
+        .into_iter()
+        .map(|hand| hand.reference)
+        .collect()
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, PartialOrd)]
 struct Hand<'a, T> {
     reference: &'a str,
     hand: T,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[repr(u8)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, IntEnum)]
 enum Category {
-    FiveOfAKind,
-    StraightFlush,
-    FourOfAKind,
-    FullHouse,
-    Flush,
-    Straight,
-    ThreeOfAKind,
-    TwoPair,
-    OnePair,
-    HighCard,
+    FiveOfAKind = 9,
+    StraightFlush = 8,
+    FourOfAKind = 7,
+    FullHouse = 6,
+    Flush = 5,
+    Straight = 4,
+    ThreeOfAKind = 3,
+    TwoPair = 2,
+    OnePair = 1,
+    HighCard = 0,
+}
+
+impl cmp::PartialOrd for Category {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        self.int_value().partial_cmp(&other.int_value())
+    }
+}
+
+impl cmp::Ord for Category {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.int_value().cmp(&other.int_value())
+    }
 }
 
 impl Category {
