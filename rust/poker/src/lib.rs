@@ -30,15 +30,15 @@ struct Hand<'a, T> {
 #[derive(Debug, PartialEq, Eq)]
 enum Category {
     FiveOfAKind,
-    StraightFlush(Suit, Card /* lowest card */),
+    StraightFlush,
     FourOfAKind,
     FullHouse,
-    Flush(Suit),
-    Straight(Rank /* lowest rank  */),
-    ThreeOfAKind(Rank),
-    TwoPair(Rank, Rank),
-    OnePair(Rank),
-    HighCard(Card),
+    Flush,
+    Straight,
+    ThreeOfAKind,
+    TwoPair,
+    OnePair,
+    HighCard,
 }
 
 impl Category {
@@ -104,10 +104,12 @@ impl Category {
                     })
                 });
 
-        if let Some(suit) = suit {
-            if is_straight_flush {
-                return Category::StraightFlush(suit, hand[0]);
-            }
+        if is_straight_flush {
+            return Category::StraightFlush;
+        }
+
+        if is_flush {
+            return Category::Flush;
         }
 
         unimplemented!("Category::new")
@@ -117,6 +119,21 @@ impl Category {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn identifies_flush() {
+        let make_club = |rank| Card::new(rank, Suit::Clubs);
+        assert_eq!(
+            Category::new(vec![
+                make_club(Rank::Jack),
+                make_club(Rank::Eight),
+                make_club(Rank::Nine),
+                make_club(Rank::Four),
+                make_club(Rank::Three)
+            ]),
+            Category::Flush
+        );
+    }
 
     #[test]
     fn identifies_full_house() {
@@ -172,7 +189,7 @@ mod tests {
                 make_club(Rank::Eight),
                 make_club(Rank::Seven)
             ]),
-            Category::StraightFlush(Suit::Clubs, make_club(Rank::Seven))
+            Category::StraightFlush
         );
 
         assert_eq!(
@@ -183,7 +200,7 @@ mod tests {
                 make_club(Rank::Eight),
                 make_club(Rank::Jack),
             ]),
-            Category::StraightFlush(Suit::Clubs, make_club(Rank::Seven))
+            Category::StraightFlush
         );
     }
 
