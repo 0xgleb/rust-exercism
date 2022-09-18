@@ -3,11 +3,21 @@ use std::cmp;
 use std::cmp::Ordering;
 use std::collections;
 
+const DEBUG: bool = true;
+
 /// Given a list of poker hands, return a list of those hands which win.
 ///
 /// Note the type signature: this function should return _the same_ reference to
 /// the winning hand(s) as were passed in, not reconstructed strings which happen to be equal.
 pub fn winning_hands<'a>(hands: &[&'a str]) -> Vec<&'a str> {
+    if DEBUG {
+        println!("\n\n\n");
+
+        for hand in hands {
+            println!("{}", hand)
+        }
+    }
+
     let mut parsed_hands = hands
         .into_iter()
         .map(|hand| {
@@ -20,13 +30,39 @@ pub fn winning_hands<'a>(hands: &[&'a str]) -> Vec<&'a str> {
         })
         .collect::<Vec<Hand<Category>>>();
 
-    parsed_hands.sort_by(|a, b| b.partial_cmp(a).unwrap_or(cmp::Ordering::Equal));
+    if DEBUG {
+        println!("\n\n\n");
+
+        for hand in &parsed_hands {
+            println!("{:?}", hand)
+        }
+    }
+
+    parsed_hands.sort_by(|a, b| b.partial_cmp(a).unwrap());
+
+    if DEBUG {
+        println!("\n\n\n");
+
+        for hand in &parsed_hands {
+            println!("{:?}", hand)
+        }
+    }
 
     let result = parsed_hands
         .iter()
-        .take_while(|hand| hand.hand == parsed_hands[0].hand)
+        .take_while(|hand| hand.partial_cmp(&&&parsed_hands[0]) == Some(cmp::Ordering::Equal))
         .map(|hand| hand.reference)
         .collect();
+
+    if DEBUG {
+        println!("\n\n\n");
+
+        for hand in &result {
+            println!("{:?}", hand)
+        }
+
+        println!("\n\n\n");
+    }
 
     result
 }
@@ -43,7 +79,7 @@ impl<T: PartialOrd> cmp::PartialOrd for Hand<'_, T> {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 enum Category {
     FiveOfAKind,
     StraightFlush,
@@ -53,33 +89,44 @@ enum Category {
     Straight,
     ThreeOfAKind,
     TwoPair,
-    OnePair,
-    HighCard(Card),
+    OnePair(Option<Rank>),
+    HighCard(Vec<Card>),
 }
 
 impl cmp::PartialOrd for Category {
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
         Some(match (self, other) {
             (Category::FiveOfAKind, Category::FiveOfAKind) => Ordering::Equal,
-            (Category::FiveOfAKind, _) => Ordering::Greater,
             (Category::StraightFlush, Category::StraightFlush) => Ordering::Equal,
-            (Category::StraightFlush, _) => Ordering::Greater,
             (Category::FourOfAKind, Category::FourOfAKind) => Ordering::Equal,
-            (Category::FourOfAKind, _) => Ordering::Greater,
             (Category::FullHouse, Category::FullHouse) => Ordering::Equal,
-            (Category::FullHouse, _) => Ordering::Greater,
             (Category::Flush, Category::Flush) => Ordering::Equal,
-            (Category::Flush, _) => Ordering::Greater,
             (Category::Straight, Category::Straight) => Ordering::Equal,
-            (Category::Straight, _) => Ordering::Greater,
             (Category::ThreeOfAKind, Category::ThreeOfAKind) => Ordering::Equal,
-            (Category::ThreeOfAKind, _) => Ordering::Greater,
             (Category::TwoPair, Category::TwoPair) => Ordering::Equal,
-            (Category::TwoPair, _) => Ordering::Greater,
-            (Category::OnePair, Category::OnePair) => Ordering::Equal,
-            (Category::OnePair, _) => Ordering::Greater,
+            (Category::OnePair(lhs), Category::OnePair(rhs)) => match (lhs, rhs) {
+                (Some(lhs), Some(rhs)) => lhs.cmp(rhs),
+                (None, Some(_)) => Ordering::Greater,
+                (Some(_), None) => Ordering::Less,
+                (None, None) => Ordering::Equal,
+            },
             (Category::HighCard(lhs), Category::HighCard(rhs)) => lhs.cmp(rhs),
-            (Category::HighCard(_), _) => Ordering::Less,
+            (lhs, rhs) => {
+                let to_rank = |category: &Category| match category {
+                    Category::FiveOfAKind => 10,
+                    Category::StraightFlush => 9,
+                    Category::FourOfAKind => 8,
+                    Category::FullHouse => 7,
+                    Category::Flush => 6,
+                    Category::Straight => 5,
+                    Category::ThreeOfAKind => 4,
+                    Category::TwoPair => 3,
+                    Category::OnePair(_) => 2,
+                    Category::HighCard(_) => 1,
+                };
+
+                to_rank(lhs).cmp(&to_rank(rhs))
+            }
         })
     }
 }
@@ -167,11 +214,13 @@ impl Category {
             return Category::TwoPair;
         }
 
-        if ranks.iter().filter(|count| *count.1 == 2).count() == 1 {
-            return Category::OnePair;
+        hand.reverse();
+
+        if let Some((rank, _)) = ranks.iter().find(|count| *count.1 == 2) {
+            return Category::OnePair(*rank);
         }
 
-        Category::HighCard(hand[hand.len() - 1])
+        Category::HighCard(hand)
     }
 }
 
@@ -180,37 +229,52 @@ mod tests {
     use super::*;
 
     #[test]
-    fn high_card_jack_greater_than_ten() {
-        let x = Category::HighCard(Card::Regular(RegularCard {
-            suit: Suit::Diamonds,
-            rank: Rank::Eight,
-        }));
-        let y = Category::HighCard(Card::Regular(RegularCard {
-            suit: Suit::Hearts,
-            rank: Rank::Ten,
-        }));
-        let z = Category::HighCard(Card::Regular(RegularCard {
-            suit: Suit::Hearts,
-            rank: Rank::Jack,
-        }));
+    fn two_pair_better_than_one() {
+        let two_pair = Category::TwoPair;
+        let one_pair = Category::OnePair(Some(Rank::Eight));
+        let lower_one_pair = Category::OnePair(Some(Rank::Two));
 
-        assert!(x < y);
-        assert!(y < z);
-        assert!(x < z);
+        assert_eq!(two_pair.partial_cmp(&one_pair), Some(Ordering::Greater));
+
+        assert_eq!(
+            two_pair.partial_cmp(&lower_one_pair),
+            Some(Ordering::Greater)
+        );
+
+        assert_eq!(lower_one_pair.partial_cmp(&two_pair), Some(Ordering::Less));
+
+        assert_eq!(
+            one_pair.partial_cmp(&lower_one_pair),
+            Some(Ordering::Greater)
+        );
+
+        let mut vec1 = vec![lower_one_pair.clone(), two_pair.clone(), one_pair.clone()];
+        let vec2 = vec![two_pair.clone(), one_pair.clone(), lower_one_pair.clone()];
+
+        vec1.sort_by(|a, b| b.partial_cmp(a).unwrap());
+
+        assert_eq!(vec1, vec2);
     }
 
     #[test]
     fn highest_card() {
-        assert_eq!(
-            Category::new(vec![
-                Card::new(Rank::Three, Suit::Spades),
-                Card::new(Rank::Four, Suit::Spades),
-                Card::new(Rank::Five, Suit::Diamonds),
-                Card::new(Rank::Six, Suit::Hearts),
-                Card::new(Rank::Jack, Suit::Hearts),
-            ]),
-            Category::HighCard(Card::new(Rank::Jack, Suit::Hearts))
-        );
+        let original = vec![
+            Card::new(Rank::Three, Suit::Spades),
+            Card::new(Rank::Four, Suit::Spades),
+            Card::new(Rank::Five, Suit::Diamonds),
+            Card::new(Rank::Six, Suit::Hearts),
+            Card::new(Rank::Jack, Suit::Hearts),
+        ];
+
+        let sorted = vec![
+            Card::new(Rank::Jack, Suit::Hearts),
+            Card::new(Rank::Six, Suit::Hearts),
+            Card::new(Rank::Five, Suit::Diamonds),
+            Card::new(Rank::Four, Suit::Spades),
+            Card::new(Rank::Three, Suit::Spades),
+        ];
+
+        assert_eq!(Category::new(original), Category::HighCard(sorted));
     }
 
     #[test]
@@ -223,7 +287,7 @@ mod tests {
                 Card::new(Rank::Nine, Suit::Diamonds),
                 Card::new(Rank::Six, Suit::Clubs),
             ]),
-            Category::OnePair
+            Category::OnePair(Some(Rank::Queen))
         );
     }
 
@@ -489,7 +553,7 @@ impl RegularCard {
         } else if self.rank < other.rank {
             cmp::Ordering::Less
         } else {
-            self.suit.cmp(&other.suit)
+            cmp::Ordering::Equal
         }
     }
 }
