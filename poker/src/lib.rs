@@ -87,9 +87,9 @@ enum Category {
     FullHouse,
     Flush,
     Straight,
-    ThreeOfAKind(Rank, Option<Rank>),
-    TwoPair(Option<Rank>, Option<Rank>, Option<Rank>),
-    OnePair(Option<Rank>),
+    ThreeOfAKind(Rank, Rank),
+    TwoPair(Rank, Rank, Rank),
+    OnePair(Rank),
     HighCard(Vec<Card>),
 }
 
@@ -117,34 +117,22 @@ impl cmp::PartialOrd for Category {
                 let lhs = lpair1.max(lpair2);
                 let rhs = rpair1.max(rpair2);
 
-                match (lhs, rhs) {
-                    (Some(lhs), Some(rhs)) => {
-                        let mut cmp = lhs.cmp(rhs);
+                let mut cmp = lhs.cmp(rhs);
 
-                        if cmp == Ordering::Equal {
-                            let lhs = lpair1.min(lpair2);
-                            let rhs = rpair1.min(rpair2);
+                if cmp == Ordering::Equal {
+                    let lhs = lpair1.min(lpair2);
+                    let rhs = rpair1.min(rpair2);
 
-                            cmp = lhs.cmp(rhs);
-                        }
-
-                        if cmp == Ordering::Equal {
-                            cmp = lother_card.cmp(rother_card);
-                        }
-
-                        cmp
-                    }
-                    (None, Some(_)) => Ordering::Greater,
-                    (Some(_), None) => Ordering::Less,
-                    (None, None) => Ordering::Equal,
+                    cmp = lhs.cmp(rhs);
                 }
+
+                if cmp == Ordering::Equal {
+                    cmp = lother_card.cmp(rother_card);
+                }
+
+                cmp
             }
-            (Category::OnePair(lhs), Category::OnePair(rhs)) => match (lhs, rhs) {
-                (Some(lhs), Some(rhs)) => lhs.cmp(rhs),
-                (None, Some(_)) => Ordering::Greater,
-                (Some(_), None) => Ordering::Less,
-                (None, None) => Ordering::Equal,
-            },
+            (Category::OnePair(lhs), Category::OnePair(rhs)) => lhs.cmp(rhs),
             (Category::HighCard(lhs), Category::HighCard(rhs)) => lhs.cmp(rhs),
             (lhs, rhs) => {
                 let to_rank = |category: &Category| match category {
@@ -172,75 +160,54 @@ impl Category {
 
         for card in &hand {
             ranks
-                .entry(Card::joker_map(None, *card, |card| Some(card.rank)))
+                .entry(card.rank)
                 .and_modify(|count| *count += 1)
                 .or_insert(1);
         }
 
-        let n_of_a_kind = ranks
-            .keys()
-            .flatten()
-            .map(|key| ranks[&Some(*key)])
-            .max()
-            .unwrap_or(0);
+        let n_of_a_kind = ranks.keys().map(|key| ranks[key]).max().unwrap_or(0);
 
-        if n_of_a_kind + ranks.get(&None).unwrap_or(&0) >= 5 {
+        if n_of_a_kind >= 5 {
             return Category::FiveOfAKind;
         }
 
-        if n_of_a_kind + ranks.get(&None).unwrap_or(&0) == 4 {
+        if n_of_a_kind == 4 {
             return Category::FourOfAKind;
         }
 
-        let is_full_house_without_jokers =
-            n_of_a_kind == 3 && ranks.iter().any(|(_, &count)| count == 2);
+        let is_full_house = n_of_a_kind == 3 && ranks.iter().any(|(_, &count)| count == 2);
 
-        let is_full_house_with_joker = ranks.iter().filter(|count| *count.1 == 2).count() >= 2
-            && ranks.get(&None).unwrap_or(&0) >= &1;
-
-        if is_full_house_without_jokers || is_full_house_with_joker {
+        if is_full_house {
             return Category::FullHouse;
         }
 
         let mut suit = None;
 
-        let is_flush = hand.iter().all(|card| match card {
-            Card::Joker => true,
-            Card::Regular(card) => match suit {
-                None => {
-                    suit = Some(card.suit);
-                    true
-                }
-                Some(suit) => suit == card.suit,
-            },
+        let is_flush = hand.iter().all(|card| match suit {
+            None => {
+                suit = Some(card.suit);
+                true
+            }
+            Some(suit) => suit == card.suit,
         });
 
         hand.sort();
 
-        let is_straight = hand
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| *i != 0)
-            .all(|(i, card)| {
-                Card::joker_map(true, *card, &|current_card: RegularCard| {
-                    Card::joker_map(true, hand[i - 1], &|prev_card: RegularCard| {
-                        Ok(current_card.rank) == Rank::from_int(prev_card.rank.int_value() + 1)
-                            || (prev_card.rank == Rank::Two
-                                && current_card.rank == Rank::Three
-                                && i == 1
-                                && Card::joker_map(
-                                    true,
-                                    hand[hand.len() - 1],
-                                    &|card: RegularCard| card.rank == Rank::Ace,
-                                ))
-                            || (current_card.rank == Rank::Ace
-                                && i == hand.len() - 1
-                                && Card::joker_map(true, hand[0], &|card: RegularCard| {
-                                    card.rank == Rank::Two
-                                }))
-                    })
-                })
-            });
+        let is_straight =
+            hand.iter()
+                .enumerate()
+                .filter(|(i, _)| *i != 0)
+                .all(|(i, current_card)| {
+                    let prev_card = hand[i - 1];
+                    Ok(current_card.rank) == Rank::from_int(prev_card.rank.int_value() + 1)
+                        || (prev_card.rank == Rank::Two
+                            && current_card.rank == Rank::Three
+                            && i == 1
+                            && hand[hand.len() - 1].rank == Rank::Ace)
+                        || (current_card.rank == Rank::Ace
+                            && i == hand.len() - 1
+                            && hand[0].rank == Rank::Two)
+                });
 
         if is_straight && is_flush {
             return Category::StraightFlush;
@@ -256,7 +223,7 @@ impl Category {
 
         if n_of_a_kind == 3 {
             return Category::ThreeOfAKind(
-                ranks.iter().find(|count| *count.1 == 3).unwrap().0.unwrap(),
+                *ranks.iter().find(|count| *count.1 == 3).unwrap().0,
                 *ranks.iter().filter(|count| *count.1 != 3).max().unwrap().0,
             );
         }
@@ -287,9 +254,9 @@ mod tests {
 
     #[test]
     fn two_pair_better_than_one() {
-        let two_pair = Category::TwoPair(Some(Rank::Five), Some(Rank::Four), Some(Rank::King));
-        let one_pair = Category::OnePair(Some(Rank::Eight));
-        let lower_one_pair = Category::OnePair(Some(Rank::Two));
+        let two_pair = Category::TwoPair(Rank::Five, Rank::Four, Rank::King);
+        let one_pair = Category::OnePair(Rank::Eight);
+        let lower_one_pair = Category::OnePair(Rank::Two);
 
         assert_eq!(two_pair.partial_cmp(&one_pair), Some(Ordering::Greater));
 
@@ -344,7 +311,7 @@ mod tests {
                 Card::new(Rank::Nine, Suit::Diamonds),
                 Card::new(Rank::Six, Suit::Clubs),
             ]),
-            Category::OnePair(Some(Rank::Queen))
+            Category::OnePair(Rank::Queen)
         );
     }
 
@@ -372,7 +339,7 @@ mod tests {
                 Card::new(Rank::Seven, Suit::Diamonds),
                 Card::new(Rank::Six, Suit::Clubs),
             ]),
-            Category::ThreeOfAKind(Rank::Queen, Some(Rank::Seven))
+            Category::ThreeOfAKind(Rank::Queen, Rank::Seven)
         );
     }
 
@@ -420,17 +387,6 @@ mod tests {
             ]),
             Category::FullHouse
         );
-
-        assert_eq!(
-            Category::new(vec![
-                make_ten(Suit::Spades),
-                make_ten(Suit::Hearts),
-                Card::Joker,
-                make_nine(Suit::Clubs),
-                make_nine(Suit::Hearts),
-            ]),
-            Category::FullHouse
-        );
     }
 
     #[test]
@@ -441,7 +397,7 @@ mod tests {
                 make_ten(Suit::Spades),
                 make_ten(Suit::Hearts),
                 Card::new(Rank::Jack, Suit::Spades),
-                Card::Joker,
+                make_ten(Suit::Diamonds),
                 make_ten(Suit::Clubs),
             ]),
             Category::FourOfAKind
@@ -479,7 +435,7 @@ mod tests {
         let make_ace = |suit| Card::new(Rank::Ace, suit);
         assert_eq!(
             Category::new(vec![
-                Card::Joker,
+                make_ace(Suit::Hearts),
                 make_ace(Suit::Spades),
                 make_ace(Suit::Hearts),
                 make_ace(Suit::Diamonds),
@@ -494,7 +450,7 @@ mod tests {
                 make_jack(Suit::Spades),
                 make_jack(Suit::Hearts),
                 make_jack(Suit::Diamonds),
-                Card::Joker,
+                make_jack(Suit::Diamonds),
                 make_jack(Suit::Clubs),
             ]),
             Category::FiveOfAKind
@@ -535,12 +491,12 @@ impl Hand<'_, Vec<Card>> {
 
                     let suit = char_to_suit(card.chars().nth(1).expect("Invalid suit"));
 
-                    Card::Regular(RegularCard { rank, suit })
+                    Card { rank, suit }
                 } else {
-                    Card::Regular(RegularCard {
+                    Card {
                         rank: Rank::Ten,
                         suit: char_to_suit(card.chars().nth(2).expect("Invalid card")),
-                    })
+                    }
                 }
             })
             .collect::<Vec<Card>>();
@@ -554,56 +510,54 @@ impl Hand<'_, Vec<Card>> {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-enum Card {
-    Regular(RegularCard),
-    Joker,
-}
+// impl Card {
+//     fn new(rank: Rank, suit: Suit) -> Card {
+//         Card::Regular(RegularCard { rank, suit })
+//     }
 
-impl Card {
-    fn new(rank: Rank, suit: Suit) -> Card {
-        Card::Regular(RegularCard { rank, suit })
-    }
+//     fn joker_map<F, T>(joker_val: T, card: Card, mut f: F) -> T
+//     where
+//         F: FnMut(RegularCard) -> T,
+//     {
+//         match card {
+//             Card::Joker => joker_val,
+//             Card::Regular(card) => f(card),
+//         }
+//     }
 
-    fn joker_map<F, T>(joker_val: T, card: Card, mut f: F) -> T
-    where
-        F: FnMut(RegularCard) -> T,
-    {
-        match card {
-            Card::Joker => joker_val,
-            Card::Regular(card) => f(card),
-        }
-    }
+//     fn compare(&self, other: &Self) -> cmp::Ordering {
+//         match (self, other) {
+//             (Card::Joker, Card::Joker) => cmp::Ordering::Equal,
+//             (Card::Joker, Card::Regular(_)) => cmp::Ordering::Greater,
+//             (Card::Regular(_), Card::Joker) => cmp::Ordering::Less,
+//             (Card::Regular(lhs), Card::Regular(rhs)) => lhs.cmp(rhs),
+//         }
+//     }
+// }
 
-    fn compare(&self, other: &Self) -> cmp::Ordering {
-        match (self, other) {
-            (Card::Joker, Card::Joker) => cmp::Ordering::Equal,
-            (Card::Joker, Card::Regular(_)) => cmp::Ordering::Greater,
-            (Card::Regular(_), Card::Joker) => cmp::Ordering::Less,
-            (Card::Regular(lhs), Card::Regular(rhs)) => lhs.cmp(rhs),
-        }
-    }
-}
+// impl cmp::PartialOrd for Card {
+//     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+//         Some(self.compare(other))
+//     }
+// }
 
-impl cmp::PartialOrd for Card {
-    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        Some(self.compare(other))
-    }
-}
-
-impl cmp::Ord for Card {
-    fn cmp(&self, other: &Self) -> cmp::Ordering {
-        self.compare(other)
-    }
-}
+// impl cmp::Ord for Card {
+//     fn cmp(&self, other: &Self) -> cmp::Ordering {
+//         self.compare(other)
+//     }
+// }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-struct RegularCard {
+struct Card {
     suit: Suit,
     rank: Rank,
 }
 
-impl RegularCard {
+impl Card {
+    fn new(rank: Rank, suit: Suit) -> Card {
+        Card { rank, suit }
+    }
+
     fn compare(&self, other: &Self) -> cmp::Ordering {
         if self.rank > other.rank {
             cmp::Ordering::Greater
@@ -615,13 +569,13 @@ impl RegularCard {
     }
 }
 
-impl cmp::PartialOrd for RegularCard {
+impl cmp::PartialOrd for Card {
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
         Some(self.compare(other))
     }
 }
 
-impl cmp::Ord for RegularCard {
+impl cmp::Ord for Card {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
         self.compare(other)
     }
