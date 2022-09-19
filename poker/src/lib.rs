@@ -82,11 +82,11 @@ impl<T: PartialOrd> cmp::PartialOrd for Hand<'_, T> {
 #[derive(Debug, PartialEq, Eq, Clone)]
 enum Category {
     FiveOfAKind,
-    StraightFlush,
-    FourOfAKind,
-    FullHouse,
-    Flush,
-    Straight,
+    StraightFlush(Rank),
+    FourOfAKind(Rank, Rank),
+    FullHouse(Rank, Rank),
+    Flush(Vec<Rank>),
+    Straight(Rank),
     ThreeOfAKind(Rank, Rank),
     TwoPair(Rank, Rank, Rank),
     OnePair(Rank),
@@ -97,11 +97,31 @@ impl cmp::PartialOrd for Category {
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
         Some(match (self, other) {
             (Category::FiveOfAKind, Category::FiveOfAKind) => Ordering::Equal,
-            (Category::StraightFlush, Category::StraightFlush) => Ordering::Equal,
-            (Category::FourOfAKind, Category::FourOfAKind) => Ordering::Equal,
-            (Category::FullHouse, Category::FullHouse) => Ordering::Equal,
-            (Category::Flush, Category::Flush) => Ordering::Equal,
-            (Category::Straight, Category::Straight) => Ordering::Equal,
+            (Category::StraightFlush(lrank), Category::StraightFlush(rrank)) => lrank.cmp(rrank),
+            (
+                Category::FourOfAKind(lfour_rank, lkicker_rank),
+                Category::FourOfAKind(rfour_rank, rkicker_rank),
+            ) => {
+                let cmp = lfour_rank.cmp(rfour_rank);
+                if cmp == Ordering::Equal {
+                    lkicker_rank.cmp(rkicker_rank)
+                } else {
+                    cmp
+                }
+            }
+            (
+                Category::FullHouse(ltriplet_rank, lpair_rank),
+                Category::FullHouse(rtriplet_rank, rpair_rank),
+            ) => {
+                let cmp = ltriplet_rank.cmp(rtriplet_rank);
+                if cmp == Ordering::Equal {
+                    lpair_rank.cmp(rpair_rank)
+                } else {
+                    cmp
+                }
+            }
+            (Category::Flush(lranks), Category::Flush(rranks)) => lranks.cmp(rranks),
+            (Category::Straight(lrank), Category::Straight(rrank)) => lrank.cmp(rrank),
             (Category::ThreeOfAKind(lrank, lhighest), Category::ThreeOfAKind(rrank, rhighest)) => {
                 let cmp = lrank.cmp(rrank);
                 if cmp == Ordering::Equal {
@@ -137,11 +157,11 @@ impl cmp::PartialOrd for Category {
             (lhs, rhs) => {
                 let to_rank = |category: &Category| match category {
                     Category::FiveOfAKind => 10,
-                    Category::StraightFlush => 9,
-                    Category::FourOfAKind => 8,
-                    Category::FullHouse => 7,
-                    Category::Flush => 6,
-                    Category::Straight => 5,
+                    Category::StraightFlush(_) => 9,
+                    Category::FourOfAKind(_, _) => 8,
+                    Category::FullHouse(_, _) => 7,
+                    Category::Flush(_) => 6,
+                    Category::Straight(_) => 5,
                     Category::ThreeOfAKind(_, _) => 4,
                     Category::TwoPair(_, _, _) => 3,
                     Category::OnePair(_) => 2,
@@ -167,18 +187,20 @@ impl Category {
 
         let n_of_a_kind = ranks.keys().map(|key| ranks[key]).max().unwrap_or(0);
 
+        let find_rank = |n| *ranks.iter().find(|count| *count.1 == n).unwrap().0;
+
         if n_of_a_kind >= 5 {
             return Category::FiveOfAKind;
         }
 
         if n_of_a_kind == 4 {
-            return Category::FourOfAKind;
+            return Category::FourOfAKind(find_rank(4), find_rank(1));
         }
 
         let is_full_house = n_of_a_kind == 3 && ranks.iter().any(|(_, &count)| count == 2);
 
         if is_full_house {
-            return Category::FullHouse;
+            return Category::FullHouse(find_rank(3), find_rank(2));
         }
 
         let mut suit = None;
@@ -209,16 +231,24 @@ impl Category {
                             && hand[0].rank == Rank::Two)
                 });
 
+        let get_straight_rank = || {
+            if hand[0].rank == Rank::Two && hand[hand.len() - 1].rank == Rank::Ace {
+                hand[hand.len() - 2].rank
+            } else {
+                *ranks.iter().max_by(|x, y| x.0.cmp(y.0)).unwrap().0
+            }
+        };
+
         if is_straight && is_flush {
-            return Category::StraightFlush;
+            return Category::StraightFlush(get_straight_rank());
         }
 
         if is_flush {
-            return Category::Flush;
+            return Category::Flush(hand.iter().rev().map(|hand| hand.rank).collect());
         }
 
         if is_straight {
-            return Category::Straight;
+            return Category::Straight(get_straight_rank());
         }
 
         if n_of_a_kind == 3 {
@@ -315,20 +345,6 @@ mod tests {
         );
     }
 
-    // #[test]
-    // fn identifies_two_pairs() {
-    //     assert_eq!(
-    //         Category::new(vec![
-    //             Card::new(Rank::Queen, Suit::Diamonds),
-    //             Card::new(Rank::Queen, Suit::Hearts),
-    //             Card::new(Rank::Seven, Suit::Spades),
-    //             Card::new(Rank::Seven, Suit::Diamonds),
-    //             Card::new(Rank::Six, Suit::Clubs),
-    //         ]),
-    //         Category::TwoPair(Some(Rank::Queen), Some(Rank::Seven))
-    //     );
-    // }
-
     #[test]
     fn identifies_three_of_a_kind() {
         assert_eq!(
@@ -353,7 +369,7 @@ mod tests {
                 Card::new(Rank::Seven, Suit::Diamonds),
                 Card::new(Rank::Six, Suit::Clubs),
             ]),
-            Category::Straight
+            Category::Straight(Rank::Ten)
         );
     }
 
@@ -368,7 +384,13 @@ mod tests {
                 make_club(Rank::Four),
                 make_club(Rank::Three)
             ]),
-            Category::Flush
+            Category::Flush(vec![
+                Rank::Jack,
+                Rank::Nine,
+                Rank::Eight,
+                Rank::Four,
+                Rank::Three
+            ])
         );
     }
 
@@ -385,7 +407,7 @@ mod tests {
                 make_nine(Suit::Clubs),
                 make_nine(Suit::Hearts),
             ]),
-            Category::FullHouse
+            Category::FullHouse(Rank::Ten, Rank::Nine)
         );
     }
 
@@ -400,7 +422,7 @@ mod tests {
                 make_ten(Suit::Diamonds),
                 make_ten(Suit::Clubs),
             ]),
-            Category::FourOfAKind
+            Category::FourOfAKind(Rank::Ten, Rank::Jack)
         );
     }
 
@@ -415,7 +437,7 @@ mod tests {
                 make_club(Rank::Eight),
                 make_club(Rank::Seven)
             ]),
-            Category::StraightFlush
+            Category::StraightFlush(Rank::Jack)
         );
 
         assert_eq!(
@@ -426,7 +448,7 @@ mod tests {
                 make_club(Rank::Eight),
                 make_club(Rank::Jack),
             ]),
-            Category::StraightFlush
+            Category::StraightFlush(Rank::Jack)
         );
     }
 
